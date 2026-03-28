@@ -1,15 +1,9 @@
 [build]
   command = "npm run build"
-  publish = "build"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "18"
-
-[[redirects]]
-  from = "/api/*"
-  to = "https://api.geniuzlab.com/api/:splat"
-  status = 200
-  force = true
 
 [[redirects]]
   from = "/*"
