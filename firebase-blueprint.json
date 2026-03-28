@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "Batch": {
+      "title": "Batch",
+      "description": "A content generation batch",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "industry": { "type": "string" },
+        "city": { "type": "string" },
+        "country": { "type": "string" },
+        "platforms": { "type": "array", "items": { "type": "string" } },
+        "emotionHook": { "type": "string" },
+        "batchSize": { "type": "number" },
+        "content": { "type": "object" },
+        "userId": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "industry", "city", "country", "platforms", "emotionHook", "batchSize", "content", "userId"]
+    },
+    "Stats": {
+      "title": "Stats",
+      "description": "Global application statistics",
+      "type": "object",
+      "properties": {
+        "totalBatches": { "type": "number" },
+        "totalPosts": { "type": "number" },
+        "totalImagePrompts": { "type": "number" },
+        "dailyCount": { "type": "number" },
+        "lastReset": { "type": "string", "format": "date-time" }
+      },
+      "required": ["totalBatches", "totalPosts", "totalImagePrompts", "dailyCount", "lastReset"]
+    }
+  },
+  "firestore": {
+    "/batches/{batchId}": {
+      "schema": "Batch",
+      "description": "Collection of generated content batches"
+    },
+    "/stats/global": {
+      "schema": "Stats",
+      "description": "Global stats document"
+    }
+  }
+}
