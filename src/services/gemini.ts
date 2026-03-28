@@ -213,7 +213,7 @@ OUTPUT FORMAT (JSON):
 IMPORTANT: Return ONLY the JSON object. The imageprompts array should have ${batchSize} items.`;
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: "gemini-3-flash-preview",
     contents: userPrompt,
     config: {
       systemInstruction,

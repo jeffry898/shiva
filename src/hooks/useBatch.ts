@@ -20,7 +20,6 @@ import {
 } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import confetti from 'canvas-confetti';
-import { generateContentWithGemini } from '../services/gemini';
 
 export function useBatch() {
   const [batches, setBatches] = useState<any[]>([]);

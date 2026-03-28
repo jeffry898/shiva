@@ -109,8 +109,10 @@ async function startServer() {
 
     const apiKey = customApiKey || process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
-      return res.status(500).json({ error: "Configuration Error: GEMINI_API_KEY is missing in server environment and no custom key provided." });
+    if (!apiKey || apiKey === "TODO_KEYHERE" || apiKey.length < 10) {
+      return res.status(500).json({ 
+        error: "Configuration Error: GEMINI_API_KEY is missing or invalid. Please go to the Settings menu (gear icon) -> Secrets and set a valid Gemini API key." 
+      });
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -266,7 +268,7 @@ Structure the response as:
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-3-flash-preview",
         contents: [{ role: "user", parts: [{ text: userPrompt }] }],
         config: {
           systemInstruction: systemPrompt,
@@ -292,11 +294,21 @@ Structure the response as:
         return res.status(504).json({ error: "SHIVA took too long to respond (45s timeout). Try a smaller batch size." });
       }
 
-      if (error.message?.includes("API key not valid")) {
-        return res.status(401).json({ error: "Invalid API Key. Check your Secrets Manager." });
+      const errorMessage = error.message || "";
+      
+      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT")) {
+        return res.status(401).json({ 
+          error: "Invalid API Key. Please go to the Settings menu (gear icon) -> Secrets and ensure GEMINI_API_KEY is correctly set." 
+        });
       }
 
-      res.status(500).json({ error: `SHIVA Error: ${error.message || "Unknown error"}` });
+      if (errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED") || error.status === 429) {
+        return res.status(429).json({ 
+          error: "Gemini API Quota Exceeded. You are likely on the Free Tier. Please wait a minute or upgrade your plan at ai.google.dev/pricing." 
+        });
+      }
+
+      res.status(500).json({ error: `SHIVA Error: ${errorMessage || "Unknown error"}` });
     }
   });
 

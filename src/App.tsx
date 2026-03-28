@@ -1,18 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Zap, Layout, Image as ImageIcon, Linkedin, Facebook, 
+  Zap, Layout, Linkedin, Facebook, 
   Twitter, Instagram, Search, History, BarChart3, 
   ChevronRight, Copy, Check, Loader2, Globe, 
   MapPin, Palette, Layers, MousePointer2, LogIn,
-  RotateCcw, Share2, Package, Menu, X, ArrowLeft, Download
+  RotateCcw, Share2, Package, Menu, X, ArrowLeft, Download,
+  Settings, LogOut, FileText, Calendar, ExternalLink,
+  Target, TrendingUp, Shield, Rocket, Sparkles
 } from 'lucide-react';
 import { Toaster, toast } from 'react-hot-toast';
 import { auth } from './firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
-import { useBatch } from './hooks/useBatch';
-import { INDUSTRIES, COUNTRIES, PLATFORMS, EMOTIONS, COLOR_PALETTES } from './constants/data';
 import { cn } from './utils/cn';
+
+// --- Types ---
+
+interface ReportData {
+  executiveSummary: string;
+  marketAnalysis: {
+    competitors: string[];
+    opportunities: string[];
+    targetAudience: string;
+  };
+  automationRoadmap: {
+    phase1: string[];
+    phase2: string[];
+    phase3: string[];
+  };
+  recommendedTools: {
+    name: string;
+    purpose: string;
+    cost: string;
+  }[];
+  roiEstimate: string;
+}
 
 // --- Components ---
 
@@ -20,7 +42,8 @@ const Button = ({ children, className, variant = 'primary', ...props }: any) => 
   const variants = {
     primary: "bg-gradient-to-r from-[#6366f1] via-[#8b5cf6] to-[#06b6d4] text-white shadow-[0_2px_8px_rgba(99,102,241,0.3)] hover:opacity-90",
     ghost: "bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white",
-    outline: "border border-[#7c3aed]/40 text-[#7c3aed] hover:bg-[#7c3aed]/10"
+    outline: "border border-[#7c3aed]/40 text-[#7c3aed] hover:bg-[#7c3aed]/10",
+    danger: "bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20"
   };
 
   return (
@@ -55,1231 +78,798 @@ const Card = ({ children, className, title, icon: Icon }: any) => (
   </motion.div>
 );
 
-const TabButton = ({ active, onClick, icon: Icon, label }: any) => (
-  <button
-    onClick={onClick}
-    className={cn(
-      "relative flex items-center gap-2 px-4 py-2 rounded-lg transition-all text-sm font-medium whitespace-nowrap",
-      active 
-        ? "text-[#7c3aed]" 
-        : "text-slate-500 hover:text-slate-300 hover:bg-white/5"
-    )}
-  >
-    <Icon size={16} />
-    {label}
-    {active && (
-      <motion.div 
-        layoutId="activeTab"
-        className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c3aed] rounded-full"
-      />
-    )}
-  </button>
+const Input = ({ label, ...props }: any) => (
+  <div className="space-y-2">
+    {label && <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{label}</label>}
+    <input
+      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7c3aed] transition-all"
+      {...props}
+    />
+  </div>
 );
 
-const CopyButton = ({ text, className }: { text: string, className?: string }) => {
-  const [copied, setCopied] = useState(false);
+// --- Settings Panel ---
 
-  const handleCopy = () => {
+const SettingsPanel = ({ isOpen, onClose, apiStatus, customApiKey, setCustomApiKey, onDownloadProject }: any) => {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+
+  const handleSaveAndTest = async () => {
+    setTestStatus('testing');
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
+      localStorage.setItem('gemini_api_key_override', customApiKey);
+      // Simple test call
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      if (data.status === 'ok') {
+        setTestStatus('success');
+        toast.success("API Key saved and verified!");
       } else {
-        const textArea = document.createElement("textarea");
-        textArea.value = text;
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
+        setTestStatus('error');
+        toast.error("API Key saved but verification failed.");
       }
-      setCopied(true);
-      toast.success("Copied to clipboard!", {
-        style: { background: '#1a1a1a', color: '#fff', border: '1px solid rgba(124,58,237,0.2)' }
-      });
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      toast.error("Failed to copy");
+    } catch (e) {
+      setTestStatus('error');
+      toast.error("Failed to verify API Key.");
     }
   };
 
   return (
-    <button 
-      onClick={handleCopy}
-      className={cn("flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider transition-all", 
-        copied ? "text-[#10b981]" : "text-slate-500 hover:text-white",
-        className
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={onClose}
+        >
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-3xl p-8 max-w-lg w-full shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                <Settings className="text-[#7c3aed]" /> System Settings
+              </h2>
+              <button 
+                onClick={onClose}
+                className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              <div className="space-y-4">
+                <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-widest">API Configuration</div>
+                <div className="p-4 bg-black/40 rounded-2xl border border-[#2a2a2a] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-[#a1a1aa]">Gemini API Status</span>
+                    <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase ${apiStatus === 'ready' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}`}>
+                      {apiStatus === 'ready' ? 'Ready' : 'Not Configured'}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-[#a1a1aa] uppercase font-bold">Gemini API Key Override</label>
+                    <input 
+                      type="password"
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder="Paste your Gemini API key here..."
+                      className="w-full bg-white/5 border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#7c3aed] transition-all"
+                    />
+                  </div>
+
+                  <Button 
+                    onClick={handleSaveAndTest}
+                    className="w-full py-2 text-xs"
+                    disabled={testStatus === 'testing'}
+                  >
+                    {testStatus === 'testing' ? <Loader2 className="animate-spin" size={14} /> : <Check size={14} />}
+                    Save & Test API Key
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-widest">Project Export</div>
+                <div className="p-4 bg-black/40 rounded-2xl border border-[#2a2a2a] space-y-4">
+                  <p className="text-xs text-[#a1a1aa] leading-relaxed">
+                    Download the full project source code as a ZIP file for local development or backup.
+                  </p>
+                  <Button 
+                    variant="outline" 
+                    onClick={onDownloadProject}
+                    className="w-full py-3 text-sm"
+                  >
+                    <Download size={18} className="mr-2" />
+                    Download Source Code (.zip)
+                  </Button>
+                </div>
+              </div>
+
+              <Button 
+                onClick={onClose}
+                className="w-full py-4"
+              >
+                Close Settings
+              </Button>
+            </div>
+          </motion.div>
+        </motion.div>
       )}
-    >
-      {copied ? <Check size={14} /> : <Copy size={14} />}
-      {copied ? "Copied! ✓" : "Copy"}
-    </button>
+    </AnimatePresence>
   );
 };
-
-const CharacterCounter = ({ text, limit }: { text: string, limit?: number }) => {
-  const count = text?.length || 0;
-  const isOver = limit ? count > limit : false;
-  
-  return (
-    <div className={cn("text-[10px] font-mono", isOver ? "text-red-500" : "text-slate-500")}>
-      {count}{limit ? ` / ${limit}` : ''} chars
-    </div>
-  );
-};
-
-const SEOScoreBadge = ({ score }: { score: number }) => {
-  const getColor = (s: number) => {
-    if (s >= 80) return "text-[#10b981] bg-[#10b981]/10 border-[#10b981]/20";
-    if (s >= 50) return "text-[#f59e0b] bg-[#f59e0b]/10 border-[#f59e0b]/20";
-    return "text-[#ef4444] bg-[#ef4444]/10 border-[#ef4444]/20";
-  };
-
-  return (
-    <div className={cn("px-2 py-1 rounded-md border text-[10px] font-bold flex items-center gap-1", getColor(score))}>
-      <Search size={10} />
-      SEO: {score}/100
-    </div>
-  );
-};
-
-const LoadingOverlay = ({ text }: { text: string }) => (
-  <motion.div 
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-[100] bg-[#0f0f0f]/95 backdrop-blur-md flex flex-col items-center justify-center text-center p-6"
-  >
-    <div className="relative mb-12">
-      <motion.div 
-        animate={{ rotate: 360 }}
-        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-        className="w-32 h-32 border-4 border-[#7c3aed]/10 border-t-[#7c3aed] rounded-full"
-      />
-      <motion.div
-        animate={{ scale: [1, 1.2, 1] }}
-        transition={{ duration: 2, repeat: Infinity }}
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-      >
-        <Zap size={48} className="text-[#7c3aed] fill-[#7c3aed]/20" />
-      </motion.div>
-    </div>
-    <motion.h2 
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      className="text-3xl font-black text-white mb-4 tracking-tighter"
-    >
-      {text}
-    </motion.h2>
-    <motion.p 
-      initial={{ y: 20, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ delay: 0.1 }}
-      className="text-slate-400 max-w-md leading-relaxed"
-    >
-      Our AI high-command is orchestrating your content empire. 
-      Sit back while we build your digital legacy.
-    </motion.p>
-  </motion.div>
-);
-
-const EmptyState = ({ icon: Icon, title, description }: any) => (
-  <motion.div 
-    initial={{ opacity: 0, scale: 0.95 }}
-    animate={{ opacity: 1, scale: 1 }}
-    className="h-full flex flex-col items-center justify-center text-center p-12"
-  >
-    <div className="w-24 h-24 bg-[#1a1a1a] border border-[#2a2a2a] rounded-3xl flex items-center justify-center mb-8 shadow-2xl">
-      <Icon size={40} className="text-slate-600" />
-    </div>
-    <h3 className="text-2xl font-bold text-white mb-3">{title}</h3>
-    <p className="text-[#a1a1aa] max-w-xs leading-relaxed">{description}</p>
-  </motion.div>
-);
 
 // --- Main App ---
 
-export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState('imagePrompts');
-  const [selectedBatch, setSelectedBatch] = useState<any>(null);
-  const [sortConfig, setSortConfig] = useState({ key: 'timestamp', direction: 'desc' });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+export function App() {
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [formData, setFormData] = useState<any>({
+    businessName: '',
+    industry: '',
+    website: '',
+    goals: [],
+    challenges: '',
+    budget: '1000-5000',
+    timeline: '1-3 months'
+  });
+  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [apiStatus, setApiStatus] = useState<'ready' | 'missing' | 'checking'>('checking');
-  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem('GEMINI_API_KEY') || '');
+  const [apiStatus, setApiStatus] = useState<'idle' | 'ready' | 'error'>('idle');
+  const [customApiKey, setCustomApiKey] = useState(localStorage.getItem('gemini_api_key_override') || '');
 
+  // Fix 1: App Title
   useEffect(() => {
-    localStorage.setItem('GEMINI_API_KEY', customApiKey);
-  }, [customApiKey]);
-
-  useEffect(() => {
-    const checkHealth = async () => {
-      try {
-        const res = await fetch('/api/health');
-        const data = await res.json();
-        setApiStatus(data.apiConfigured ? 'ready' : 'missing');
-      } catch (e) {
-        setApiStatus('missing');
-      }
-    };
-    checkHealth();
+    document.title = 'GeniuzLab Intelligence Portal';
   }, []);
-  const { batches, stats, loading, generateBatch, deleteBatch, nextPage, prevPage, page, hasMore, exportAllToCSV, shareBatch, getBatchById } = useBatch();
 
-  const sortedBatches = [...batches].sort((a, b) => {
-    const aVal = a[sortConfig.key];
-    const bVal = b[sortConfig.key];
-    
-    // Handle Firestore Timestamps
-    const aTime = aVal?.toDate ? aVal.toDate().getTime() : new Date(aVal).getTime();
-    const bTime = bVal?.toDate ? bVal.toDate().getTime() : new Date(bVal).getTime();
-
-    if (sortConfig.key === 'timestamp') {
-      return sortConfig.direction === 'asc' ? aTime - bTime : bTime - aTime;
-    }
-    
-    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  const toggleSort = (key: string) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
-    }));
-  };
-
-  // Form State
-  const [formData, setFormData] = useState({
-    industry: INDUSTRIES[0],
-    country: COUNTRIES[0].name,
-    city: COUNTRIES[0].cities[0],
-    platforms: ['Instagram', 'Facebook'],
-    emotionHook: 'FOMO',
-    colorPalette: COLOR_PALETTES[0].name,
-    batchSize: 10
-  });
-
+  // Fix 7: Auth State Persistence
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
-    
-    // Check for shared batch in URL
-    const params = new URLSearchParams(window.location.search);
-    const sharedBatchId = params.get('batch');
-    if (sharedBatchId) {
-      getBatchById(sharedBatchId).then(batch => {
-        if (batch) {
-          setSelectedBatch(batch);
-          toast.success("Shared batch loaded! 🔱");
-        } else {
-          toast.error("Shared batch not found or expired.");
-        }
-      });
-    }
-
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
     return () => unsubscribe();
   }, []);
 
-  const handleReset = () => {
-    setFormData({
-      industry: INDUSTRIES[0],
-      country: COUNTRIES[0].name,
-      city: COUNTRIES[0].cities[0],
-      platforms: ['Instagram', 'Facebook'],
-      emotionHook: 'FOMO',
-      colorPalette: COLOR_PALETTES[0].name,
-      batchSize: 10
-    });
-    toast.success("Form reset! 🧹");
+  // Fix 4: Wizard State Persistence (Restore)
+  useEffect(() => {
+    const savedWizard = localStorage.getItem('geniuzlab_wizard');
+    if (savedWizard) {
+      try {
+        const { step, data, timestamp } = JSON.parse(savedWizard);
+        // Only restore if less than 24 hours old
+        if (Date.now() - timestamp < 24 * 60 * 60 * 1000) {
+          setCurrentStep(step);
+          setFormData(data);
+        }
+      } catch (e) {
+        console.error("Failed to restore wizard state", e);
+      }
+    }
+    
+    const savedReport = localStorage.getItem('geniuzlab_report');
+    if (savedReport) {
+      try {
+        setReportData(JSON.parse(savedReport));
+      } catch (e) {
+        console.error("Failed to restore report data", e);
+      }
+    }
+  }, []);
+
+  // Fix 4: Wizard State Persistence (Save)
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('geniuzlab_wizard', JSON.stringify({
+        step: currentStep,
+        data: formData,
+        timestamp: Date.now()
+      }));
+    }
+  }, [currentStep, formData, currentUser]);
+
+  useEffect(() => {
+    if (reportData) {
+      localStorage.setItem('geniuzlab_report', JSON.stringify(reportData));
+    }
+  }, [reportData]);
+
+  // Fix 3: API Status Check
+  useEffect(() => {
+    const checkApi = async () => {
+      try {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        setApiStatus(data.status === 'ok' ? 'ready' : 'error');
+      } catch (e) {
+        setApiStatus('error');
+      }
+    };
+    checkApi();
+  }, []);
+
+  // Fix 2: Logout Button Logic
+  const handleSignOut = async () => {
+    if (window.confirm("Are you sure you want to logout? Your progress will be saved.")) {
+      try {
+        await auth.signOut();
+        setCurrentUser(null);
+        // We keep reportData in state for the current session, but it will be cleared on refresh if not restored
+        toast.success("Signed out successfully");
+      } catch (error) {
+        toast.error("Failed to sign out");
+      }
+    }
   };
 
-  const isFormValid = formData.industry && formData.city && formData.country && formData.platforms.length > 0;
-
-  const copyAllPrompts = () => {
-    if (!selectedBatch?.content?.imagePrompts) return;
-    const prompts = selectedBatch.content.imagePrompts
-      .map((p: any, i: number) => `${i + 1}. ${p.prompt}`)
-      .join('\n\n');
-    navigator.clipboard.writeText(prompts);
-    toast.success("All image prompts copied! 📸");
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      toast.success("Welcome to GeniuzLab!");
+    } catch (error) {
+      toast.error("Login failed. Please try again.");
+    }
   };
 
   const handleDownloadProject = async () => {
-    const loadingToast = toast.loading('Preparing project export...');
     try {
-      const response = await fetch('/api/export');
-      if (!response.ok) {
-        throw new Error('Failed to generate export');
-      }
-      
-      const blob = await response.blob();
+      const res = await fetch('/api/export');
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `agentforge-source-${new Date().toISOString().split('T')[0]}.zip`;
+      a.download = 'geniuzlab-intelligence-portal.zip';
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-      toast.success('Project source downloaded successfully!', { id: loadingToast });
-    } catch (error: any) {
-      console.error('Download Error:', error);
-      toast.error('Failed to download project source. Please try again.', { id: loadingToast });
+      toast.success("Project downloaded successfully!");
+    } catch (e) {
+      toast.error("Failed to download project.");
     }
   };
 
-  const exportSocialPack = () => {
-    if (!selectedBatch?.content?.platforms) {
-      toast.error("No social content available to export.");
-      return;
-    }
-    let pack = `GENIUZLAB SOCIAL PACK - ${selectedBatch.industry.toUpperCase()}\n`;
-    pack += `Location: ${selectedBatch.city}, ${selectedBatch.country}\n`;
-    pack += `Generated: ${new Date().toLocaleString()}\n\n`;
-    pack += `========================================\n\n`;
-
-    Object.entries(selectedBatch.content.platforms).forEach(([platform, posts]: [string, any]) => {
-      if (!Array.isArray(posts)) return;
-      pack += `[ ${platform.toUpperCase()} ]\n\n`;
-      posts.forEach((post: any, i: number) => {
-        pack += `POST #${i + 1}\n`;
-        if (post.caption) pack += `Caption: ${post.caption}\n`;
-        if (post.post) pack += `Post: ${post.post}\n`;
-        if (post.hook) pack += `Hook: ${post.hook}\n`;
-        if (post.script) pack += `Script: ${post.script}\n`;
-        if (post.engagementHook) pack += `Engagement Hook: ${post.engagementHook}\n`;
-        if (post.cta) pack += `CTA: ${post.cta}\n`;
-        if (post.trending_sounds_suggestion) pack += `Audio Suggestion: ${post.trending_sounds_suggestion}\n`;
-        if (post.standalone) pack += `Standalone Tweet: ${post.standalone}\n`;
-        if (post.thread) pack += `Thread:\n${post.thread.map((t: string, ti: number) => `  ${ti + 1}. ${t}`).join('\n')}\n`;
-        if (post.hashtags) pack += `Hashtags: ${post.hashtags.join(' ')}\n`;
-        pack += `SEO Score: ${post.seoScore}/100\n\n`;
+  // Fix 5: Report Generation Logic
+  const generateReport = async () => {
+    setGeneratingReport(true);
+    const toastId = toast.loading("Analyzing your business data...");
+    
+    try {
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key-override': customApiKey
+        },
+        body: JSON.stringify({ formData })
       });
-      pack += `----------------------------------------\n\n`;
-    });
 
-    const blob = new Blob([pack], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `social_pack_${selectedBatch.industry.toLowerCase()}_${selectedBatch.city.toLowerCase()}.txt`;
-    link.click();
-    toast.success("Social pack downloaded! 📦");
-  };
-
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (error) {
-      toast.error("Login failed");
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!user) {
-      toast.error("Please login first");
-      return;
-    }
-    try {
-      const result = await generateBatch(formData, customApiKey);
-      setSelectedBatch(result);
-      if (window.innerWidth < 1024) {
-        setIsSidebarOpen(false);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.message || 'Failed to generate report');
       }
-    } catch (error) {
-      // Error handled in hook
+
+      const data = await response.json();
+      setReportData(data);
+      toast.success("Intelligence Report Generated!", { id: toastId });
+    } catch (error: any) {
+      console.error("Report Generation Error:", error);
+      toast.error(error.message || "Failed to generate report. Please check your API key.", { id: toastId });
+    } finally {
+      setGeneratingReport(false);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success("Copied! ✓", {
-      style: { background: '#1a1a1a', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }
-    });
+  const resetWizard = () => {
+    if (window.confirm("Are you sure you want to start over? This will clear your current progress.")) {
+      setCurrentStep(1);
+      setFormData({
+        businessName: '',
+        industry: '',
+        website: '',
+        goals: [],
+        challenges: '',
+        budget: '1000-5000',
+        timeline: '1-3 months'
+      });
+      setReportData(null);
+      localStorage.removeItem('geniuzlab_wizard');
+      localStorage.removeItem('geniuzlab_report');
+      toast.success("Wizard reset.");
+    }
   };
 
-  if (!user) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] text-white flex flex-col items-center justify-center p-4">
+      <div className="min-h-screen bg-[#0a0a0a] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="text-[#7c3aed] animate-spin" size={48} />
+        <p className="text-slate-400 font-medium animate-pulse">Authenticating with GeniuzLab...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Background Gradients */}
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#6366f1]/10 blur-[120px] rounded-full" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#06b6d4]/10 blur-[120px] rounded-full" />
+        
         <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center max-w-md"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="max-w-md w-full text-center space-y-8 relative z-10"
         >
-          <div className="w-20 h-20 bg-gradient-to-br from-[#6366f1] to-[#06b6d4] rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-indigo-500/20">
-            <Zap size={40} className="text-white" />
+          <div className="space-y-4">
+            <div className="w-20 h-20 bg-gradient-to-br from-[#6366f1] to-[#06b6d4] rounded-3xl mx-auto flex items-center justify-center shadow-2xl shadow-[#6366f1]/20">
+              <Rocket className="text-white" size={40} />
+            </div>
+            <h1 className="text-4xl font-black text-white tracking-tight">GeniuzLab</h1>
+            <p className="text-slate-400 text-lg">Intelligence Portal</p>
           </div>
-          <h1 className="text-4xl font-extrabold mb-4 tracking-tight">GeniuzLab <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#6366f1] to-[#06b6d4]">Content Factory</span></h1>
-          <p className="text-slate-400 mb-8 leading-relaxed">The ultimate AI content engine for digital marketing agencies. Generate entire content empires in seconds.</p>
-          <Button onClick={handleLogin} className="w-full py-4 text-lg">
-            <LogIn size={20} />
-            Enter the Factory
-          </Button>
+
+          <Card className="p-8 space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-white">Welcome Back</h2>
+              <p className="text-sm text-slate-400">Sign in to access your AI automation command center.</p>
+            </div>
+
+            <Button onClick={handleGoogleLogin} className="w-full py-4 text-lg">
+              <LogIn size={20} className="mr-2" />
+              Sign in with Google
+            </Button>
+
+            <div className="pt-4 border-t border-white/5 flex items-center justify-center gap-4 text-slate-500">
+              <Shield size={16} />
+              <span className="text-xs font-medium uppercase tracking-widest">Secure Enterprise Access</span>
+            </div>
+          </Card>
+
+          <p className="text-slate-500 text-xs">
+            By signing in, you agree to our Terms of Service and Privacy Policy.
+          </p>
         </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] text-slate-200 font-sans selection:bg-[#7c3aed]/30">
-      <Toaster position="bottom-right" />
-      
-      <AnimatePresence>
-        {loading && <LoadingOverlay text="🔱 SHIVA is generating your empire content..." />}
-      </AnimatePresence>
+    <div className="min-h-screen bg-[#0a0a0a] text-white selection:bg-[#7c3aed]/30">
+      <Toaster position="top-right" />
       
       {/* Header */}
-      <header className="h-20 border-b border-[#2a2a2a] bg-[#0f0f0f]/80 backdrop-blur-xl sticky top-0 z-[100] px-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#7c3aed] rounded-xl flex items-center justify-center">
-            <Zap size={20} className="text-white fill-white" />
+      <header className="sticky top-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-gradient-to-br from-[#6366f1] to-[#06b6d4] rounded-xl flex items-center justify-center shadow-lg shadow-[#6366f1]/20">
+              <Rocket className="text-white" size={20} />
+            </div>
+            <div>
+              <h1 className="text-lg font-black tracking-tight">GeniuzLab</h1>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Intelligence Portal</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-bold text-lg text-white leading-none">GeniuzLab Content Factory</h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mt-1">AI-Powered Content Empire</p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-4 lg:gap-8">
-          <div className="hidden lg:flex items-center gap-8">
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-bold">Total Batches</span>
-              <span className="text-white font-mono font-bold">{stats.totalBatches}</span>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-bold">Posts Generated</span>
-              <span className="text-white font-mono font-bold">{stats.totalPosts}</span>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] text-slate-500 uppercase font-bold">Today's Count</span>
-              <span className="text-[#7c3aed] font-mono font-bold">{stats.dailyCount}/100</span>
-            </div>
-          </div>
-          
           <div className="flex items-center gap-3">
             <button 
-              onClick={() => setShowSettings(!showSettings)}
-              className="w-10 h-10 bg-[#1a1a2e] border border-white/5 rounded-xl flex items-center justify-center text-slate-400 hover:text-white transition-colors"
-              title="System Settings"
+              onClick={() => setShowSettings(true)}
+              className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all"
             >
-              <BarChart3 size={20} />
+              <Settings size={20} />
             </button>
-            <button 
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="lg:hidden w-10 h-10 bg-[#1a1a2e] border border-white/5 rounded-xl flex items-center justify-center text-slate-400"
-            >
-              {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden">
-              <img src={user.photoURL} alt={user.displayName} referrerPolicy="no-referrer" />
+            
+            <div className="h-8 w-px bg-white/10 mx-2" />
+
+            <div className="flex items-center gap-3 bg-white/5 pl-2 pr-4 py-1.5 rounded-xl border border-white/5">
+              <img 
+                src={currentUser.photoURL || `https://ui-avatars.com/api/?name=${currentUser.displayName}`} 
+                alt="Profile" 
+                className="w-8 h-8 rounded-lg border border-white/10"
+              />
+              <div className="hidden sm:block">
+                <p className="text-xs font-bold text-white leading-none mb-1">{currentUser.displayName}</p>
+                <p className="text-[10px] text-slate-500 leading-none">{currentUser.email}</p>
+              </div>
             </div>
+
+            <Button 
+              variant="danger" 
+              onClick={handleSignOut}
+              className="px-3 py-2 text-xs"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Logout</span>
+            </Button>
           </div>
         </div>
       </header>
 
-      <main className="flex flex-col lg:flex-row min-h-[calc(100vh-80px)] relative">
-        
-        {/* Mobile Sidebar Overlay */}
-        <AnimatePresence>
-          {isSidebarOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[80]"
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Sidebar - Input Panel */}
-        <aside className={cn(
-          "w-full lg:w-80 flex-shrink-0 border-r border-[#2a2a2a] p-6 space-y-8 bg-[#0f0f0f] lg:sticky lg:top-20 lg:h-[calc(100vh-80px)] overflow-y-auto transition-all duration-300 z-[90]",
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-          "fixed lg:relative top-20 lg:top-0 left-0 h-[calc(100vh-80px)]"
-        )}>
-          <div className="lg:hidden flex justify-end mb-4">
-            <button 
-              onClick={() => setIsSidebarOpen(false)}
-              className="p-2 text-slate-500 hover:text-white"
-            >
-              <X size={20} />
-            </button>
-          </div>
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                <Globe size={12} /> Industry
-              </label>
-              <select 
-                value={formData.industry}
-                onChange={(e) => setFormData({...formData, industry: e.target.value})}
-                className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm focus:border-[#7c3aed] outline-none transition-all"
-              >
-                {INDUSTRIES.map(i => <option key={i} value={i}>{i}</option>)}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                  <Globe size={12} /> Country
-                </label>
-                <select 
-                  value={formData.country}
-                  onChange={(e) => {
-                    const country = COUNTRIES.find(c => c.name === e.target.value);
-                    setFormData({...formData, country: e.target.value, city: country?.cities[0] || ''});
-                  }}
-                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm focus:border-[#7c3aed] outline-none transition-all"
-                >
-                  {COUNTRIES.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                  <MapPin size={12} /> City
-                </label>
-                <select 
-                  value={formData.city}
-                  onChange={(e) => setFormData({...formData, city: e.target.value})}
-                  className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm focus:border-[#7c3aed] outline-none transition-all"
-                >
-                  {COUNTRIES.find(c => c.name === formData.country)?.cities.map(city => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                <Layout size={12} /> Platforms
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {PLATFORMS.map(p => (
-                  <label key={p} className="flex items-center gap-2 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-3 py-2 cursor-pointer hover:bg-white/5 transition-all">
-                    <input 
-                      type="checkbox" 
-                      checked={formData.platforms.includes(p)}
-                      onChange={(e) => {
-                        const next = e.target.checked 
-                          ? [...formData.platforms, p]
-                          : formData.platforms.filter(x => x !== p);
-                        setFormData({...formData, platforms: next});
-                      }}
-                      className="accent-[#7c3aed]"
+      <main className="max-w-7xl mx-auto px-4 py-12">
+        {!reportData ? (
+          <div className="max-w-3xl mx-auto space-y-12">
+            {/* Onboarding Wizard */}
+            <div className="space-y-4 text-center">
+              <h2 className="text-3xl font-black text-white tracking-tight">Onboarding Wizard</h2>
+              <p className="text-slate-400">Tell us about your business to generate your custom AI roadmap.</p>
+              
+              {/* Progress Bar */}
+              <div className="flex items-center gap-2 max-w-md mx-auto pt-4">
+                {[1, 2, 3, 4, 5].map((step) => (
+                  <div key={step} className="flex-1 h-1.5 rounded-full bg-white/5 overflow-hidden">
+                    <motion.div 
+                      initial={false}
+                      animate={{ width: currentStep >= step ? '100%' : '0%' }}
+                      className="h-full bg-gradient-to-r from-[#6366f1] to-[#06b6d4]"
                     />
-                    <span className="text-xs">{p}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                <Zap size={12} /> Emotion Hook
-              </label>
-              <div className="space-y-2">
-                {EMOTIONS.map(e => (
-                  <label key={e.id} className={cn(
-                    "flex items-center justify-between w-full px-4 py-3 rounded-xl border transition-all cursor-pointer",
-                    formData.emotionHook === e.id ? "bg-[#7c3aed]/10 border-[#7c3aed]/40 text-white" : "bg-[#1a1a1a] border-[#2a2a2a] text-[#a1a1aa] hover:border-white/20"
-                  )}>
-                    <div className="flex items-center gap-3">
-                      <span>{e.icon}</span>
-                      <div className="text-left">
-                        <div className="text-xs font-bold">{e.label}</div>
-                        <div className="text-[10px] opacity-60">{e.description}</div>
-                      </div>
-                    </div>
-                    <input 
-                      type="radio" 
-                      name="emotion" 
-                      className="hidden" 
-                      checked={formData.emotionHook === e.id}
-                      onChange={() => setFormData({...formData, emotionHook: e.id})}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                <Palette size={12} /> Color Palette
-              </label>
-              <select 
-                value={formData.colorPalette}
-                onChange={(e) => setFormData({...formData, colorPalette: e.target.value})}
-                className="w-full bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm focus:border-[#7c3aed] outline-none transition-all"
-              >
-                {COLOR_PALETTES.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <label className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider flex items-center gap-2">
-                  <Layers size={12} /> Batch Size
-                </label>
-                <span className="text-[#7c3aed] font-mono font-bold text-xs">{formData.batchSize}</span>
-              </div>
-              <input 
-                type="range" 
-                min="5" 
-                max="30" 
-                step="5"
-                value={formData.batchSize}
-                onChange={(e) => setFormData({...formData, batchSize: parseInt(e.target.value)})}
-                className="w-full accent-[#7c3aed]"
-              />
-              <p className="text-[9px] text-slate-600 italic">Limited to 30 for stability & quality</p>
-            </div>
-
-            <div className="flex gap-3 pt-6">
-              <Button 
-                variant="ghost" 
-                className="flex-1"
-                onClick={handleReset}
-                disabled={loading}
-              >
-                <RotateCcw size={18} className="mr-2" />
-                Reset
-              </Button>
-              <Button 
-                onClick={() => {
-                  handleGenerate();
-                  if (window.innerWidth < 1024) setIsSidebarOpen(false);
-                }} 
-                disabled={loading || !isFormValid}
-                className="flex-[2] py-4 shadow-xl shadow-indigo-500/20"
-              >
-                {loading ? <Loader2 className="animate-spin" /> : <Zap size={18} className="fill-white" />}
-                {loading ? "SHIVA is generating..." : "Generate Empire"}
-              </Button>
-            </div>
-
-            <div className="pt-8 border-t border-[#2a2a2a]">
-              <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-wider mb-4">System Status</div>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[#a1a1aa]">AI Engine</span>
-                  <span className="text-[#10b981] flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />
-                    Operational
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[#a1a1aa]">Database</span>
-                  <span className="text-[#10b981] flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse" />
-                    Connected
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-[#a1a1aa]">API Key</span>
-                  <span className={`${apiStatus === 'ready' ? 'text-[#10b981]' : apiStatus === 'checking' ? 'text-[#f59e0b]' : 'text-[#ef4444]'} flex items-center gap-1 uppercase font-bold text-[10px]`}>
-                    <div className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'ready' ? 'bg-[#10b981] shadow-[0_0_8px_rgba(16,185,129,0.5)]' : apiStatus === 'checking' ? 'bg-[#f59e0b] animate-pulse' : 'bg-[#ef4444] shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
-                    {apiStatus === 'ready' ? 'Active' : apiStatus === 'checking' ? 'Checking' : 'Missing'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Main Content Area */}
-        <section className="flex-1 flex flex-col bg-[#0f0f0f]">
-          
-          {/* Tabs */}
-          <div className="border-b border-[#2a2a2a] px-6 py-4 flex items-center gap-2 overflow-x-auto no-scrollbar bg-[#0f0f0f]/50 backdrop-blur-sm sticky top-0 z-40">
-            <TabButton active={activeTab === 'imagePrompts'} onClick={() => setActiveTab('imagePrompts')} icon={ImageIcon} label="Image Prompts" />
-            
-            {selectedBatch?.platforms?.includes('Pinterest') && (
-              <TabButton active={activeTab === 'pinterest'} onClick={() => setActiveTab('pinterest')} icon={Layout} label="Pinterest" />
-            )}
-            {selectedBatch?.platforms?.includes('LinkedIn') && (
-              <TabButton active={activeTab === 'linkedin'} onClick={() => setActiveTab('linkedin')} icon={Linkedin} label="LinkedIn" />
-            )}
-            {selectedBatch?.platforms?.includes('Facebook') && (
-              <TabButton active={activeTab === 'facebook'} onClick={() => setActiveTab('facebook')} icon={Facebook} label="Facebook" />
-            )}
-            {selectedBatch?.platforms?.includes('TikTok') && (
-              <TabButton active={activeTab === 'tiktok'} onClick={() => setActiveTab('tiktok')} icon={Zap} label="TikTok" />
-            )}
-            {selectedBatch?.platforms?.includes('Twitter/X') && (
-              <TabButton active={activeTab === 'twitter'} onClick={() => setActiveTab('twitter')} icon={Twitter} label="Twitter" />
-            )}
-            {selectedBatch?.platforms?.includes('Instagram') && (
-              <TabButton active={activeTab === 'instagram'} onClick={() => setActiveTab('instagram')} icon={Instagram} label="Instagram" />
-            )}
-
-            <TabButton active={activeTab === 'seo'} onClick={() => setActiveTab('seo')} icon={Search} label="SEO Data" />
-            <TabButton active={activeTab === 'share'} onClick={() => setActiveTab('share')} icon={Share2} label="Share & Export" />
-          </div>
-
-          {/* Tab Content */}
-          <div className="flex-1 p-8 overflow-y-auto">
-            <AnimatePresence mode="wait">
-              {!selectedBatch ? (
-                <EmptyState 
-                  icon={MousePointer2}
-                  title="Select platforms and click Generate"
-                  description="Configure the factory on the left and click generate to build your content empire."
-                />
-              ) : (
-                <motion.div
-                  key={activeTab}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="space-y-6"
-                >
-                  {/* Batch Header Actions */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#2a2a2a]">
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={() => setSelectedBatch(null)}
-                        className="w-10 h-10 bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors"
-                      >
-                        <ArrowLeft size={20} />
-                      </button>
-                      <div>
-                        <h2 className="text-2xl font-bold text-white leading-tight">
-                          {selectedBatch.industry} <span className="text-[#a1a1aa] text-lg font-normal">in {selectedBatch.city}</span>
-                        </h2>
-                        <p className="text-[#a1a1aa] text-xs font-mono uppercase tracking-widest mt-1">
-                          {selectedBatch.timestamp ? new Date(selectedBatch.timestamp?.toDate ? selectedBatch.timestamp.toDate() : selectedBatch.timestamp).toLocaleString() : 'Just now'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button 
-                        variant="ghost" 
-                        className="text-[10px] uppercase tracking-widest font-bold"
-                        onClick={() => shareBatch(selectedBatch.id)}
-                      >
-                        <Share2 size={14} className="mr-2" />
-                        Share
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        className="text-[10px] uppercase tracking-widest font-bold"
-                        onClick={exportSocialPack}
-                      >
-                        <Package size={14} className="mr-2" />
-                        Social Pack
-                      </Button>
-                    </div>
                   </div>
-
-                  {activeTab === 'imagePrompts' && (
-                    <div className="space-y-6">
-                      <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold flex items-center gap-2">
-                          <ImageIcon className="text-[#7c3aed]" /> Image Ad Factory
-                        </h2>
-                        <Button variant="ghost" className="text-xs py-2" onClick={copyAllPrompts}>
-                          <Copy size={14} className="mr-2" /> Copy All Prompts
-                        </Button>
-                      </div>
-                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                        {selectedBatch.content.imagePrompts.map((p: any) => (
-                          <Card key={p.id} title={`Prompt #${p.id}`} icon={ImageIcon}>
-                            <div className="space-y-4">
-                              <div className="flex justify-between items-start">
-                                <p className="text-sm text-[#a1a1aa] leading-relaxed italic flex-1">"{p.prompt}"</p>
-                                {p.seoScore && <SEOScoreBadge score={p.seoScore} />}
-                              </div>
-                              <div className="p-4 bg-black/20 rounded-xl border border-[#2a2a2a]">
-                                <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-1">Text Overlay</div>
-                                <div className="text-[#7c3aed] font-bold">{p.textOverlay}</div>
-                              </div>
-                              <div className="flex justify-between items-center">
-                                <span className="px-3 py-1 bg-[#7c3aed]/10 text-[#7c3aed] text-[10px] font-bold rounded-full uppercase tracking-wider">
-                                  {p.useCase}
-                                </span>
-                                <CopyButton text={p.prompt} />
-                              </div>
-                            </div>
-                          </Card>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {['pinterest', 'linkedin', 'facebook', 'tiktok', 'twitter', 'instagram'].includes(activeTab) && (
-                    <div className="space-y-6 max-w-4xl mx-auto">
-                      <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold capitalize flex items-center gap-2">
-                          {activeTab} Content
-                        </h2>
-                      </div>
-                      {selectedBatch.content.platforms?.[activeTab] ? (
-                        selectedBatch.content.platforms[activeTab].map((item: any, idx: number) => (
-                          <Card key={idx} className="relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-4 flex items-center gap-3">
-                              {item.seoScore && <SEOScoreBadge score={item.seoScore} />}
-                              <CopyButton text={JSON.stringify(item, null, 2)} />
-                            </div>
-                            
-                            {activeTab === 'linkedin' && (
-                              <div className="space-y-4">
-                                <div className="text-lg font-bold text-white border-l-4 border-[#7c3aed] pl-4">{item.hook}</div>
-                                <div className="text-[#a1a1aa] whitespace-pre-wrap leading-relaxed">{item.post}</div>
-                                <div className="flex justify-end pt-2">
-                                  <CharacterCounter text={item.post} limit={3000} />
-                                </div>
-                              </div>
-                            )}
-
-                            {activeTab === 'facebook' && (
-                              <div className="space-y-4">
-                                <div className="text-lg font-bold text-white border-l-4 border-[#1877f2] pl-4">{item.engagementHook}</div>
-                                <div className="text-[#a1a1aa] whitespace-pre-wrap leading-relaxed">{item.post}</div>
-                                <div className="flex justify-end pt-2">
-                                  <CharacterCounter text={item.post} limit={5000} />
-                                </div>
-                              </div>
-                            )}
-
-                            {activeTab === 'pinterest' && (
-                              <div className="space-y-4">
-                                <div className="text-[#a1a1aa] leading-relaxed">{item.caption}</div>
-                                <div className="flex flex-wrap gap-2">
-                                  {item.hashtags?.map((h: string) => <span key={h} className="text-[#e60023] text-sm">{h}</span>)}
-                                </div>
-                                <div className="flex justify-end">
-                                  <CharacterCounter text={item.caption} limit={500} />
-                                </div>
-                                <div className="pt-4 border-t border-[#2a2a2a]">
-                                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-2">SEO Keywords</div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {item.seoKeywords?.map((k: string) => <span key={k} className="px-2 py-1 bg-white/5 rounded text-[10px]">{k}</span>)}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {activeTab === 'tiktok' && (
-                              <div className="space-y-6">
-                                <div className="p-4 bg-black rounded-xl border border-[#2a2a2a]">
-                                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-2">Scroll Stopper (0-3s)</div>
-                                  <div className="text-white font-bold text-lg italic">"{item.hook}"</div>
-                                </div>
-                                <div className="space-y-2">
-                                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold">Full Script</div>
-                                  <div className="text-[#a1a1aa] whitespace-pre-wrap italic">"{item.script}"</div>
-                                  <div className="flex justify-end">
-                                    <CharacterCounter text={item.script} />
-                                  </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[#2a2a2a]">
-                                  <div>
-                                    <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-1">CTA</div>
-                                    <div className="text-[#7c3aed] font-bold">{item.cta}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-1">Audio Suggestion</div>
-                                    <div className="text-[#a1a1aa] text-xs">{item.trending_sounds_suggestion}</div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {activeTab === 'twitter' && (
-                              <div className="space-y-8">
-                                <div className="space-y-4">
-                                  <div className="text-[10px] text-slate-500 uppercase font-bold">Thread Format</div>
-                                  {item.thread?.map((t: string, i: number) => (
-                                    <div key={i} className="flex gap-4">
-                                      <div className="flex flex-col items-center">
-                                        <div className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-xs font-bold">{i+1}</div>
-                                        {i < item.thread.length - 1 && <div className="w-px flex-1 bg-white/10 my-1"></div>}
-                                      </div>
-                                      <div className="flex-1 pt-1 text-[#a1a1aa]">
-                                        {t}
-                                        <div className="flex justify-end mt-1">
-                                          <CharacterCounter text={t} limit={280} />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                                <div className="pt-6 border-t border-[#2a2a2a] space-y-2">
-                                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold">Standalone Tweet</div>
-                                  <div className="text-white italic">"{item.standalone}"</div>
-                                  <div className="flex justify-end">
-                                    <CharacterCounter text={item.standalone} limit={280} />
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {activeTab === 'instagram' && (
-                              <div className="space-y-6">
-                                <div className="text-[#a1a1aa] whitespace-pre-wrap leading-relaxed">{item.caption}</div>
-                                <div className="flex flex-wrap gap-2">
-                                  {item.hashtags?.map((h: string) => <span key={h} className="text-[#e1306c] text-sm">{h}</span>)}
-                                </div>
-                                <div className="flex justify-end">
-                                  <CharacterCounter text={item.caption} limit={2200} />
-                                </div>
-                                <div className="p-4 bg-gradient-to-br from-[#833ab4] via-[#fd1d1d] to-[#fcb045]/20 rounded-xl border border-[#2a2a2a]">
-                                  <div className="text-[10px] text-white/60 uppercase font-bold mb-1">Story Concept</div>
-                                  <div className="text-white font-medium">{item.storyIdea}</div>
-                                </div>
-                              </div>
-                            )}
-                          </Card>
-                        ))
-                      ) : (
-                        <EmptyState 
-                          icon={Layout}
-                          title="No Content Generated"
-                          description="No content generated for this platform in this batch. Try generating a new batch with this platform selected."
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {activeTab === 'seo' && (
-                    <div className="space-y-8 max-w-4xl mx-auto">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <Card title="Primary Keyword" icon={Search}>
-                          <div className="text-2xl font-black text-white tracking-tight">{selectedBatch.content.seoData.primaryKeyword}</div>
-                        </Card>
-                        <Card title="Content Theme" icon={Layers}>
-                          <div className="text-lg font-bold text-[#7c3aed]">{selectedBatch.content.seoData.contentTheme}</div>
-                        </Card>
-                        <Card title="Search Volume" icon={BarChart3}>
-                          <div className="text-2xl font-black text-[#10b981] tracking-tight">{selectedBatch.content.seoData.searchVolumeEstimate || 'N/A'}</div>
-                          <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mt-1">Est. Monthly Searches</div>
-                        </Card>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <Card title="Competition Level" icon={Zap}>
-                          <div className={cn(
-                            "inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
-                            selectedBatch.content.seoData.competitionLevel === 'Low' ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                            selectedBatch.content.seoData.competitionLevel === 'Medium' ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
-                            "bg-red-500/10 text-red-500 border-red-500/20"
-                          )}>
-                            {selectedBatch.content.seoData.competitionLevel || 'Medium'}
-                          </div>
-                          <p className="text-xs text-[#a1a1aa] mt-3 leading-relaxed">
-                            Market difficulty for ranking in {selectedBatch.city}.
-                          </p>
-                        </Card>
-                        <Card title="Content Gap Opportunity" icon={Layout}>
-                          <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                            {selectedBatch.content.seoData.contentGapOpportunity || 'Focus on local long-tail keywords and "near me" variations.'}
-                          </p>
-                        </Card>
-                      </div>
-                      
-                      <Card title="Secondary Keywords" icon={ChevronRight}>
-                        <div className="flex flex-wrap gap-3">
-                          {selectedBatch.content.seoData.secondaryKeywords.map((k: string) => (
-                            <span key={k} className="px-4 py-2 bg-white/5 border border-[#2a2a2a] rounded-xl text-[#a1a1aa] hover:border-[#7c3aed]/40 transition-all">
-                              {k}
-                            </span>
-                          ))}
-                        </div>
-                      </Card>
-
-                      <Card title="Target Audience" icon={BarChart3}>
-                        <p className="text-lg text-[#a1a1aa] italic">"{selectedBatch.content.seoData.targetAudience}"</p>
-                      </Card>
-
-                      <Button className="w-full py-4">
-                        Add to SEO Database
-                      </Button>
-                    </div>
-                  )}
-
-                  {activeTab === 'share' && (
-                    <div className="space-y-8 max-w-4xl mx-auto">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <Card title="Share Content" icon={Share2}>
-                          <div className="space-y-4">
-                            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                              Share this specific content batch with your team or clients. They will receive a read-only view of all generated assets.
-                            </p>
-                            <Button 
-                              onClick={() => shareBatch(selectedBatch.id)}
-                              className="w-full"
-                            >
-                              <Copy size={18} className="mr-2" />
-                              Copy Share Link
-                            </Button>
-                          </div>
-                        </Card>
-
-                        <Card title="Download Content" icon={Download}>
-                          <div className="space-y-4">
-                            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                              Download all social media captions, hooks, and scripts as a structured text file for easy scheduling.
-                            </p>
-                            <Button 
-                              variant="ghost"
-                              onClick={exportSocialPack}
-                              className="w-full"
-                            >
-                              <Package size={18} className="mr-2" />
-                              Download Social Pack
-                            </Button>
-                          </div>
-                        </Card>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-[#2a2a2a]">
-                        <Card title="Share Application" icon={Globe}>
-                          <div className="space-y-4">
-                            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                              Want to share the entire GeniuzLab Content Factory? Use the <strong>Share</strong> button in the top-right corner of the AI Studio interface.
-                            </p>
-                            <div className="p-4 bg-[#7c3aed]/10 border border-[#7c3aed]/20 rounded-xl text-xs text-[#7c3aed] font-medium italic">
-                              "Perfect for demonstrating the power of AI to your agency partners."
-                            </div>
-                          </div>
-                        </Card>
-
-                        <Card title="Download Application" icon={Package}>
-                          <div className="space-y-4">
-                            <p className="text-sm text-[#a1a1aa] leading-relaxed">
-                              To download the full source code or deploy it to your own infrastructure:
-                            </p>
-                            <ul className="text-xs text-[#a1a1aa] space-y-2 list-disc pl-4">
-                              <li>Open the <strong>Settings</strong> menu (gear icon) in AI Studio.</li>
-                              <li>Select <strong>Export to ZIP</strong> for local development.</li>
-                              <li>Select <strong>Export to GitHub</strong> for production deployment.</li>
-                            </ul>
-                          </div>
-                        </Card>
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Batch History Panel */}
-          <div className="h-64 border-t border-[#2a2a2a] bg-[#0f0f0f] p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-[#a1a1aa] flex items-center gap-2">
-                <History size={14} /> Batch History
-              </h2>
-              <Button 
-                variant="ghost" 
-                className="text-[10px] px-3 py-1"
-                onClick={exportAllToCSV}
-              >
-                <Download size={14} className="mr-2" />
-                Export CSV
-              </Button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="text-[#a1a1aa] border-b border-[#2a2a2a]">
-                  <tr>
-                    <th className="pb-3 font-bold cursor-pointer hover:text-white transition-colors" onClick={() => toggleSort('timestamp')}>
-                      Date {sortConfig.key === 'timestamp' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="pb-3 font-bold cursor-pointer hover:text-white transition-colors" onClick={() => toggleSort('industry')}>
-                      Industry {sortConfig.key === 'industry' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="pb-3 font-bold">Location</th>
-                    <th className="pb-3 font-bold">Platforms</th>
-                    <th className="pb-3 font-bold cursor-pointer hover:text-white transition-colors" onClick={() => toggleSort('batchSize')}>
-                      Size {sortConfig.key === 'batchSize' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                    </th>
-                    <th className="pb-3 font-bold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="text-[#a1a1aa]">
-                  {sortedBatches.map((b) => (
-                    <tr key={b.id} className="border-b border-[#2a2a2a] hover:bg-white/5 transition-colors group">
-                      <td className="py-3">{b.timestamp?.toDate ? b.timestamp.toDate().toLocaleDateString() : 'Just now'}</td>
-                      <td className="py-3 font-bold text-white">{b.industry}</td>
-                      <td className="py-3">{b.city}, {b.country}</td>
-                      <td className="py-3">
-                        <div className="flex gap-1">
-                          {b.platforms.slice(0, 3).map((p: string) => (
-                            <span key={p} className="px-1.5 py-0.5 bg-white/5 rounded text-[8px]">{p}</span>
-                          ))}
-                          {b.platforms.length > 3 && <span className="text-[8px] text-[#a1a1aa]">+{b.platforms.length - 3}</span>}
-                        </div>
-                      </td>
-                      <td className="py-3 font-mono">{b.batchSize}</td>
-                      <td className="py-3">
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => setSelectedBatch(b)}
-                            className="text-[#7c3aed] hover:underline font-bold"
-                          >
-                            View
-                          </button>
-                          <button 
-                            onClick={() => {
-                              if (window.confirm("Are you sure you want to delete this batch?")) {
-                                deleteBatch(b.id);
-                              }
-                            }}
-                            className="text-red-500 hover:text-red-400 font-bold"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            {/* Pagination Controls */}
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-[#2a2a2a]">
-              <div className="text-[10px] text-[#a1a1aa] uppercase font-bold">
-                Page {page}
+                ))}
               </div>
-              <div className="flex items-center gap-2">
-                <Button 
-                  variant="ghost" 
-                  className="px-3 py-1 text-[10px]" 
-                  onClick={prevPage}
-                  disabled={page === 1}
-                >
-                  Previous
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  className="px-3 py-1 text-[10px]" 
-                  onClick={nextPage}
-                  disabled={!hasMore}
-                >
-                  Next
-                </Button>
+              <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">
+                Step {currentStep} of 5
               </div>
             </div>
-          </div>
-        </section>
-      </main>
 
-      {/* Settings Modal */}
-      <AnimatePresence>
-        {showSettings && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setShowSettings(false)}
-          >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-[#1a1a1a] border border-[#2a2a2a] rounded-3xl p-8 max-w-lg w-full shadow-2xl"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="flex justify-between items-center mb-8">
-                <h2 className="text-2xl font-black text-white flex items-center gap-3">
-                  <BarChart3 className="text-[#7c3aed]" /> System Settings
-                </h2>
-                <button 
-                  onClick={() => setShowSettings(false)}
-                  className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center text-[#a1a1aa] hover:text-white transition-colors"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-8">
-                <div className="space-y-4">
-                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-widest">API Configuration</div>
-                  <div className="p-4 bg-black/40 rounded-2xl border border-[#2a2a2a] space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#a1a1aa]">Gemini API Key</span>
-                      <span className={`px-2 py-1 text-[10px] font-bold rounded uppercase ${apiStatus === 'ready' || customApiKey ? 'bg-emerald-500/10 text-emerald-500' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}`}>
-                        {apiStatus === 'ready' || customApiKey ? 'Configured' : 'Missing'}
-                      </span>
-                    </div>
-                    
+            <Card className="p-8">
+              <AnimatePresence mode="wait">
+                {currentStep === 1 && (
+                  <motion.div 
+                    key="step1"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-6"
+                  >
                     <div className="space-y-2">
-                      <label className="text-[10px] text-[#a1a1aa] uppercase font-bold">Custom API Key (Optional)</label>
-                      <input 
-                        type="password"
-                        value={customApiKey}
-                        onChange={(e) => setCustomApiKey(e.target.value)}
-                        placeholder="Paste your Gemini API key here..."
-                        className="w-full bg-white/5 border border-[#2a2a2a] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#7c3aed] transition-all"
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Globe className="text-[#7c3aed]" size={20} /> Basic Information
+                      </h3>
+                      <p className="text-sm text-slate-400">Let's start with the basics of your business.</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <Input 
+                        label="Business Name" 
+                        placeholder="e.g. Acme Corp" 
+                        value={formData.businessName}
+                        onChange={(e: any) => setFormData({...formData, businessName: e.target.value})}
                       />
-                      <p className="text-[10px] text-[#a1a1aa] italic">
-                        If provided, this key will be used instead of the server-side key.
+                      <Input 
+                        label="Industry" 
+                        placeholder="e.g. E-commerce" 
+                        value={formData.industry}
+                        onChange={(e: any) => setFormData({...formData, industry: e.target.value})}
+                      />
+                    </div>
+                    <Input 
+                      label="Website URL" 
+                      placeholder="https://example.com" 
+                      value={formData.website}
+                      onChange={(e: any) => setFormData({...formData, website: e.target.value})}
+                    />
+                  </motion.div>
+                )}
+
+                {currentStep === 2 && (
+                  <motion.div 
+                    key="step2"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-6"
+                  >
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Target className="text-[#7c3aed]" size={20} /> Business Goals
+                      </h3>
+                      <p className="text-sm text-slate-400">What are you looking to achieve with AI?</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {[
+                        'Automate Customer Support',
+                        'Generate More Leads',
+                        'Reduce Operational Costs',
+                        'Improve Content Creation',
+                        'Data Analysis & Insights',
+                        'Personalized Marketing'
+                      ].map((goal) => (
+                        <button
+                          key={goal}
+                          onClick={() => {
+                            const goals = formData.goals.includes(goal)
+                              ? formData.goals.filter((g: string) => g !== goal)
+                              : [...formData.goals, goal];
+                            setFormData({...formData, goals});
+                          }}
+                          className={cn(
+                            "p-4 rounded-xl border text-left transition-all",
+                            formData.goals.includes(goal)
+                              ? "bg-[#7c3aed]/10 border-[#7c3aed] text-white"
+                              : "bg-white/5 border-white/10 text-slate-400 hover:border-white/20"
+                          )}
+                        >
+                          <div className="text-sm font-bold">{goal}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {currentStep === 3 && (
+                  <motion.div 
+                    key="step3"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-6"
+                  >
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <TrendingUp className="text-[#7c3aed]" size={20} /> Current Challenges
+                      </h3>
+                      <p className="text-sm text-slate-400">What's holding your business back right now?</p>
+                    </div>
+                    <textarea
+                      className="w-full h-40 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7c3aed] transition-all resize-none"
+                      placeholder="Describe your main bottlenecks..."
+                      value={formData.challenges}
+                      onChange={(e) => setFormData({...formData, challenges: e.target.value})}
+                    />
+                  </motion.div>
+                )}
+
+                {currentStep === 4 && (
+                  <motion.div 
+                    key="step4"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-6"
+                  >
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Calendar className="text-[#7c3aed]" size={20} /> Budget & Timeline
+                      </h3>
+                      <p className="text-sm text-slate-400">Help us tailor the roadmap to your resources.</p>
+                    </div>
+                    <div className="space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Monthly AI Budget (USD)</label>
+                        <select 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7c3aed] transition-all"
+                          value={formData.budget}
+                          onChange={(e) => setFormData({...formData, budget: e.target.value})}
+                        >
+                          <option value="<1000">Less than $1,000</option>
+                          <option value="1000-5000">$1,000 - $5,000</option>
+                          <option value="5000-10000">$5,000 - $10,000</option>
+                          <option value="10000+">$10,000+</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Implementation Timeline</label>
+                        <select 
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#7c3aed] transition-all"
+                          value={formData.timeline}
+                          onChange={(e) => setFormData({...formData, timeline: e.target.value})}
+                        >
+                          <option value="Immediate">Immediate (ASAP)</option>
+                          <option value="1-3 months">1 - 3 Months</option>
+                          <option value="3-6 months">3 - 6 Months</option>
+                          <option value="6+ months">6+ Months</option>
+                        </select>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {currentStep === 5 && (
+                  <motion.div 
+                    key="step5"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-8"
+                  >
+                    <div className="text-center space-y-4">
+                      <div className="w-16 h-16 bg-[#7c3aed]/10 rounded-full mx-auto flex items-center justify-center">
+                        <Sparkles className="text-[#7c3aed]" size={32} />
+                      </div>
+                      <h3 className="text-2xl font-black text-white">Ready to Generate?</h3>
+                      <p className="text-slate-400 max-w-sm mx-auto">
+                        We've gathered all the necessary info. Our AI is ready to build your custom intelligence report.
                       </p>
                     </div>
 
-                    <p className="text-xs text-[#a1a1aa] leading-relaxed">
-                      To use the server-side key, go to the <strong>Settings</strong> menu (gear icon) in the AI Studio sidebar, click <strong>Secrets</strong>, and update the <strong>GEMINI_API_KEY</strong> value.
-                    </p>
-                    <a 
-                      href="https://aistudio.google.com/app/apikey" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-[#7c3aed] text-xs font-bold hover:underline flex items-center gap-1"
-                    >
-                      Get a new API key <ChevronRight size={12} />
-                    </a>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-widest">Factory Quotas</div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-white/5 rounded-2xl border border-[#2a2a2a]">
-                      <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-1">Daily Limit</div>
-                      <div className="text-xl font-black text-white">100 <span className="text-xs font-normal text-[#a1a1aa]">Batches</span></div>
+                    <div className="p-6 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Business:</span>
+                        <span className="text-white font-bold">{formData.businessName || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Industry:</span>
+                        <span className="text-white font-bold">{formData.industry || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Goals:</span>
+                        <span className="text-white font-bold">{formData.goals.length} Selected</span>
+                      </div>
                     </div>
-                    <div className="p-4 bg-white/5 rounded-2xl border border-[#2a2a2a]">
-                      <div className="text-[10px] text-[#a1a1aa] uppercase font-bold mb-1">Rate Limit</div>
-                      <div className="text-xl font-black text-white">10 <span className="text-xs font-normal text-[#a1a1aa]">Req/Min</span></div>
-                    </div>
-                  </div>
-                </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                <div className="space-y-4">
-                  <div className="text-[10px] text-[#a1a1aa] uppercase font-bold tracking-widest">Project Export</div>
-                  <div className="p-4 bg-black/40 rounded-2xl border border-[#2a2a2a] space-y-4">
-                    <p className="text-xs text-[#a1a1aa] leading-relaxed">
-                      If you're having trouble with the platform's export features, you can download the full project source code as a ZIP file directly from here.
-                    </p>
-                    <Button 
-                      variant="outline" 
-                      onClick={handleDownloadProject}
-                      className="w-full py-3 text-sm"
-                    >
-                      <Download size={18} className="mr-2" />
-                      Download Source Code (.zip)
-                    </Button>
-                  </div>
-                </div>
-
+              <div className="flex items-center justify-between mt-12 pt-8 border-t border-white/5">
                 <Button 
-                  onClick={() => setShowSettings(false)}
-                  className="w-full py-4"
+                  variant="ghost" 
+                  onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+                  disabled={currentStep === 1 || generatingReport}
                 >
-                  Close Settings
+                  <ArrowLeft size={18} /> Back
+                </Button>
+
+                {currentStep < 5 ? (
+                  <Button 
+                    onClick={() => setCurrentStep(prev => Math.min(5, prev + 1))}
+                    disabled={generatingReport}
+                  >
+                    Next Step <ChevronRight size={18} />
+                  </Button>
+                ) : (
+                  <Button 
+                    onClick={generateReport}
+                    disabled={generatingReport}
+                    className="px-8"
+                  >
+                    {generatingReport ? (
+                      <>
+                        <Loader2 className="animate-spin" size={20} />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        Generate Report <Sparkles size={20} />
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </Card>
+          </div>
+        ) : (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Dashboard View */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-[#7c3aed] font-bold uppercase tracking-widest text-xs">
+                  <FileText size={14} /> Intelligence Report Generated
+                </div>
+                <h2 className="text-4xl font-black text-white tracking-tight">
+                  {formData.businessName} Roadmap
+                </h2>
+                <p className="text-slate-400">Custom AI automation strategy for {formData.industry}.</p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={() => window.print()}>
+                  <Download size={18} /> Download PDF
+                </Button>
+                <Button onClick={() => window.location.href = 'mailto:hello@geniuzlab.com'}>
+                  Book Free Consultation <ExternalLink size={18} />
                 </Button>
               </div>
-            </motion.div>
-          </motion.div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Executive Summary */}
+              <Card className="lg:col-span-2" title="Executive Summary" icon={Zap}>
+                <div className="prose prose-invert max-w-none">
+                  <p className="text-lg text-slate-300 leading-relaxed italic">
+                    "{reportData.executiveSummary}"
+                  </p>
+                </div>
+              </Card>
+
+              {/* ROI Estimate */}
+              <Card title="ROI Estimate" icon={TrendingUp}>
+                <div className="h-full flex flex-col justify-center items-center text-center space-y-4">
+                  <div className="text-5xl font-black text-emerald-500 tracking-tighter">
+                    {reportData.roiEstimate}
+                  </div>
+                  <p className="text-sm text-slate-400 uppercase tracking-widest font-bold">
+                    Projected Efficiency Gain
+                  </p>
+                  <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 w-[75%]" />
+                  </div>
+                </div>
+              </Card>
+
+              {/* Market Analysis */}
+              <Card title="Market Analysis" icon={Search}>
+                <div className="space-y-6">
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase font-bold mb-3 tracking-widest">Target Audience</div>
+                    <p className="text-sm text-white font-medium">{reportData.marketAnalysis.targetAudience}</p>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-slate-500 uppercase font-bold mb-3 tracking-widest">Opportunities</div>
+                    <ul className="space-y-2">
+                      {reportData.marketAnalysis.opportunities.map((opt, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-slate-400">
+                          <Check size={14} className="text-emerald-500 mt-1 shrink-0" />
+                          {opt}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Automation Roadmap */}
+              <Card className="lg:col-span-2" title="Automation Roadmap" icon={Layers}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {[
+                    { phase: 'Phase 1: Foundation', items: reportData.automationRoadmap.phase1, color: '#6366f1' },
+                    { phase: 'Phase 2: Scaling', items: reportData.automationRoadmap.phase2, color: '#8b5cf6' },
+                    { phase: 'Phase 3: Optimization', items: reportData.automationRoadmap.phase3, color: '#06b6d4' }
+                  ].map((p, i) => (
+                    <div key={i} className="space-y-4">
+                      <div className="text-xs font-bold uppercase tracking-widest" style={{ color: p.color }}>{p.phase}</div>
+                      <ul className="space-y-3">
+                        {p.items.map((item, j) => (
+                          <li key={j} className="p-3 bg-white/5 border border-white/5 rounded-xl text-xs text-slate-300">
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Recommended Tools */}
+              <Card title="Recommended Tech Stack" icon={Package}>
+                <div className="space-y-4">
+                  {reportData.recommendedTools.map((tool, i) => (
+                    <div key={i} className="p-4 bg-white/5 border border-white/5 rounded-xl flex justify-between items-center group hover:border-[#7c3aed]/30 transition-all">
+                      <div>
+                        <div className="text-sm font-bold text-white">{tool.name}</div>
+                        <div className="text-[10px] text-slate-500">{tool.purpose}</div>
+                      </div>
+                      <div className="text-xs font-bold text-[#7c3aed]">{tool.cost}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+
+            <div className="flex justify-center pt-12">
+              <Button variant="ghost" onClick={resetWizard}>
+                <RotateCcw size={18} /> Start New Analysis
+              </Button>
+            </div>
+          </div>
         )}
-      </AnimatePresence>
+      </main>
+
+      <SettingsPanel 
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        apiStatus={apiStatus}
+        customApiKey={customApiKey}
+        setCustomApiKey={setCustomApiKey}
+        onDownloadProject={handleDownloadProject}
+      />
     </div>
   );
 }
