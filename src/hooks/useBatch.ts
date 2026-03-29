@@ -321,5 +321,19 @@ export function useBatch() {
     }
   };
 
-  return { batches, stats, loading, generateBatch, deleteBatch, nextPage, prevPage, page, hasMore, exportAllToCSV, shareBatch, getBatchById };
+  const updateBatch = async (batchId: string, updatedContent: any) => {
+    try {
+      const batchRef = doc(db, 'batches', batchId);
+      await updateDoc(batchRef, {
+        content: updatedContent
+      });
+      return true;
+    } catch (error) {
+      console.error("Update Batch Error:", error);
+      toast.error("Failed to update batch content");
+      return false;
+    }
+  };
+
+  return { batches, stats, loading, generateBatch, deleteBatch, updateBatch, nextPage, prevPage, page, hasMore, exportAllToCSV, shareBatch, getBatchById };
 }

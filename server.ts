@@ -312,6 +312,73 @@ Structure the response as:
     }
   });
 
+  // Image Generation Endpoint
+  app.post("/api/generate-image", async (req, res) => {
+    const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown";
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ error: "Rate limit exceeded. Please wait a minute." });
+    }
+
+    const { prompt, customApiKey } = req.body;
+    const apiKey = customApiKey || process.env.GEMINI_API_KEY;
+
+    if (!apiKey || apiKey === "TODO_KEYHERE" || apiKey.length < 10) {
+      return res.status(500).json({ 
+        error: "Configuration Error: GEMINI_API_KEY is missing or invalid. Please go to the Settings menu (gear icon) -> Secrets and set a valid Gemini API key." 
+      });
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: prompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "1:1"
+          }
+        },
+      });
+
+      let imageUrl = null;
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData) {
+            const base64Image = part.inlineData.data;
+            imageUrl = `data:image/png;base64,${base64Image}`;
+            break;
+          }
+        }
+      }
+
+      if (!imageUrl) {
+        throw new Error("No image was returned by the AI engine.");
+      }
+
+      res.json({ imageUrl });
+    } catch (error: any) {
+      console.error("Image Generation Error:", error);
+      const errorMessage = error.message || "";
+      
+      if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT")) {
+        return res.status(401).json({ 
+          error: "Invalid API Key or Permissions. If you are on the Free Tier, ensure your GEMINI_API_KEY is correctly set in the Secrets menu. Note: Some models require a paid Google Cloud project." 
+        });
+      }
+
+      if (errorMessage.includes("quota") || errorMessage.includes("RESOURCE_EXHAUSTED") || error.status === 429) {
+        return res.status(429).json({ 
+          error: "Image Generation Quota Exceeded. Please wait a minute and try again." 
+        });
+      }
+
+      res.status(500).json({ error: `Image Generation Error: ${errorMessage || "Unknown error"}` });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
