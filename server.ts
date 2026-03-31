@@ -267,17 +267,40 @@ Structure the response as:
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-        config: {
-          systemInstruction: systemPrompt,
-          responseMimeType: "application/json",
-          responseSchema: responseSchema as any
-        },
-      });
+      let response;
+      let retries = 3;
+      let delay = 1000;
+
+      while (retries > 0) {
+        try {
+          response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+            config: {
+              systemInstruction: systemPrompt,
+              responseMimeType: "application/json",
+              responseSchema: responseSchema as any
+            },
+          });
+          break; // Success!
+        } catch (err: any) {
+          const isRetryable = err.status === 503 || err.status === 429 || (err.message && err.message.includes("high demand"));
+          if (isRetryable && retries > 1) {
+            console.log(`SHIVA: Model busy, retrying in ${delay}ms... (${retries - 1} retries left)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            retries--;
+            delay *= 2; // Exponential backoff
+          } else {
+            throw err;
+          }
+        }
+      }
 
       clearTimeout(timeoutId);
+
+      if (!response) {
+        throw new Error("Failed to get response from SHIVA engine after retries.");
+      }
 
       const responseText = response.text;
       if (!responseText) {
@@ -299,6 +322,12 @@ Structure the response as:
       if (errorMessage.includes("API key not valid") || errorMessage.includes("INVALID_ARGUMENT")) {
         return res.status(401).json({ 
           error: "Invalid API Key. Please go to the Settings menu (gear icon) -> Secrets and ensure GEMINI_API_KEY is correctly set." 
+        });
+      }
+
+      if (errorMessage.includes("high demand") || error.status === 503) {
+        return res.status(503).json({ 
+          error: "SHIVA is currently experiencing high demand. Please wait a few seconds and try again." 
         });
       }
 
@@ -331,34 +360,58 @@ Structure the response as:
     const ai = new GoogleGenAI({ apiKey });
 
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: prompt }],
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: "1:1"
-          }
-        },
-      });
-
       let imageUrl = null;
-      if (response.candidates?.[0]?.content?.parts) {
-        for (const part of response.candidates[0].content.parts) {
-          if (part.inlineData) {
-            const base64Image = part.inlineData.data;
-            imageUrl = `data:image/png;base64,${base64Image}`;
-            break;
+      let usedModel = 'imagen-3.1-generate-001';
+
+      try {
+        // Try Imagen 3.1 first (requires paid plan)
+        const imagenResponse = await ai.models.generateImages({
+          model: usedModel,
+          prompt: prompt,
+          config: {
+            numberOfImages: 1,
+            outputMimeType: 'image/jpeg',
+            aspectRatio: '1:1',
+          },
+        });
+
+        if (imagenResponse.generatedImages && imagenResponse.generatedImages.length > 0) {
+          const base64Image = imagenResponse.generatedImages[0].image.imageBytes;
+          imageUrl = `data:image/jpeg;base64,${base64Image}`;
+        }
+      } catch (imagenError: any) {
+        console.warn("Imagen 3.1 failed, falling back to Gemini 2.5 Flash Image:", imagenError.message);
+        
+        // Fallback to Gemini 2.5 Flash Image (Free Tier compatible)
+        usedModel = 'gemini-2.5-flash-image';
+        const geminiResponse = await ai.models.generateContent({
+          model: usedModel,
+          contents: {
+            parts: [{ text: prompt }],
+          },
+          config: {
+            imageConfig: {
+              aspectRatio: "1:1"
+            }
+          },
+        });
+
+        if (geminiResponse.candidates?.[0]?.content?.parts) {
+          for (const part of geminiResponse.candidates[0].content.parts) {
+            if (part.inlineData) {
+              const base64Image = part.inlineData.data;
+              imageUrl = `data:image/png;base64,${base64Image}`;
+              break;
+            }
           }
         }
       }
 
       if (!imageUrl) {
-        throw new Error("No image was returned by the AI engine.");
+        throw new Error("No image was returned by any AI engine.");
       }
 
-      res.json({ imageUrl });
+      res.json({ imageUrl, model: usedModel });
     } catch (error: any) {
       console.error("Image Generation Error:", error);
       const errorMessage = error.message || "";
