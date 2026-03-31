@@ -269,6 +269,23 @@ export default function App() {
     }
   };
 
+  const handleGenerateAllImages = async () => {
+    if (!selectedBatch?.id || !selectedBatch.content.imagePrompts) return;
+    
+    const promptsToGenerate = selectedBatch.content.imagePrompts.filter((p: any) => !p.generatedImageUrl);
+    
+    if (promptsToGenerate.length === 0) {
+      toast.success("All images are already generated! 🎨");
+      return;
+    }
+
+    toast.loading(`Generating ${promptsToGenerate.length} images... This may take a minute.`, { duration: 5000 });
+    
+    for (const p of promptsToGenerate) {
+      await handleGenerateImage(p.id, p.prompt);
+    }
+  };
+
   const sortedBatches = [...batches].sort((a, b) => {
     const aVal = a[sortConfig.key];
     const bVal = b[sortConfig.key];
@@ -825,9 +842,19 @@ export default function App() {
                         <h2 className="text-xl font-bold flex items-center gap-2">
                           <ImageIcon className="text-[#7c3aed]" /> Image Ad Factory
                         </h2>
-                        <Button variant="ghost" className="text-xs py-2" onClick={copyAllPrompts}>
-                          <Copy size={14} className="mr-2" /> Copy All Prompts
-                        </Button>
+                        <div className="flex items-center gap-3">
+                          <Button 
+                            variant="outline" 
+                            className="text-xs py-2 border-[#7c3aed]/40 text-[#7c3aed] hover:bg-[#7c3aed]/10" 
+                            onClick={handleGenerateAllImages}
+                            disabled={generatingImageId !== null}
+                          >
+                            <Zap size={14} className="mr-2" /> Generate All Images
+                          </Button>
+                          <Button variant="ghost" className="text-xs py-2" onClick={copyAllPrompts}>
+                            <Copy size={14} className="mr-2" /> Copy All Prompts
+                          </Button>
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                         {selectedBatch.content.imagePrompts.map((p: any) => (
